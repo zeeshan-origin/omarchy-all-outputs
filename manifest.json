@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.zeeshan-origin.all-outputs",
+  "name": "All Outputs",
+  "version": "1.0.0",
+  "author": "Zeeshan Ansari",
+  "license": "MIT",
+  "homepage": "https://github.com/zeeshan-origin/omarchy-all-outputs",
+  "repository": "https://github.com/zeeshan-origin/omarchy-all-outputs",
+  "description": "Play on every connected audio output at once, with a volume slider per device and a microphone picker",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "All Outputs",
+    "description": "Broadcast toggle, per-device volume, microphone picker",
+    "category": "Audio",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
