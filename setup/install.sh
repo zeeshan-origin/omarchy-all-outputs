@@ -38,7 +38,8 @@ done
 
 fail() { echo "all-outputs setup: $*" >&2; exit 6; }
 sha() { /usr/bin/sha256sum "$1" 2>/dev/null | /usr/bin/cut -d' ' -f1; }
-recorded_sha() { [[ -f $MANIFEST ]] && /usr/bin/awk -F'\t' -v p="$DEST" '$1=="file" && $2==p {print $3; exit}' "$MANIFEST"; }
+# Last record for the path wins, so an older line can never shadow a newer one.
+recorded_sha() { [[ -f $MANIFEST ]] && /usr/bin/awk -F'\t' -v p="$DEST" '$1=="file" && $2==p {s=$3} END {if (s) print s}' "$MANIFEST"; }
 
 # Refuse to look through a symlink anywhere on the path we write to.
 refuse_symlink() { [[ -L $1 ]] && fail "refusing to operate through symlink $1"; return 0; }
@@ -73,14 +74,17 @@ fi
 refuse_symlink "$DEST_DIR"; refuse_symlink "$STATE"
 /usr/bin/mkdir -p "$DEST_DIR" "$STATE" || fail "cannot create $DEST_DIR or $STATE"
 
-if [[ -e $DEST && (( replace )) ]]; then
+# Only a file that was not ours gets backed up. Our own earlier version is
+# just replaced, otherwise uninstall would "restore" it later.
+if [[ -e $DEST ]] && (( replace )) && [[ $(recorded_sha) != $(sha "$DEST") ]]; then
   /usr/bin/mkdir -p "$BACKUP" && /usr/bin/cp -p "$DEST" "$BACKUP/10-all-outputs.conf.$(/usr/bin/date +%s)" || fail "backup failed"
 fi
 
 tmp=$(/usr/bin/mktemp "$DEST_DIR/.10-all-outputs.XXXXXX") || fail "mktemp failed"
 /usr/bin/cp "$SRC" "$tmp" && /usr/bin/chmod 0644 "$tmp" && /usr/bin/mv -f "$tmp" "$DEST" || { /usr/bin/rm -f "$tmp"; fail "write failed"; }
 
-{ [[ -f $MANIFEST ]] && /usr/bin/grep -v -F "	$DEST	" "$MANIFEST"; printf 'file\t%s\t%s\n' "$DEST" "$(sha "$DEST")"; } > "$MANIFEST.new" \
+# Drop any earlier record for this path by field, then add the current one.
+{ [[ -f $MANIFEST ]] && /usr/bin/awk -F'\t' -v p="$DEST" '!($1=="file" && $2==p)' "$MANIFEST"; printf 'file\t%s\t%s\n' "$DEST" "$(sha "$DEST")"; } > "$MANIFEST.new" \
   && /usr/bin/mv -f "$MANIFEST.new" "$MANIFEST" || fail "cannot record install"
 
 echo "Installed $DEST"
