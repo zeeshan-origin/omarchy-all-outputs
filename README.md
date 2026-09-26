@@ -106,8 +106,14 @@ omarchy plugin remove io.github.zeeshan-origin.all-outputs
 ```
 
 The uninstaller removes the PipeWire config only if it is still the exact file
-it installed, restores a backed up original if there was one, and restarts
+it installed, puts your backed up original back if there was one, and restarts
 audio. It never touches anything it did not create.
+
+If it finds the config changed, replaced or symlinked, it leaves that file alone
+and keeps its own record and your backup too, and prints the path to the backup,
+so your original is always recoverable. Only once your original is back in place
+(or there was never one to back up) does it drop
+`~/.local/state/io.github.zeeshan-origin.all-outputs`.
 
 ## What it touches
 

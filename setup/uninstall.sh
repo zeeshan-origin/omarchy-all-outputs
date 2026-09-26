@@ -1,9 +1,14 @@
 #!/bin/bash
 # Removes what install.sh created and nothing else: the PipeWire config is
 # deleted only if it is still the exact file we installed (recorded checksum),
-# a backed-up original is restored if there was one, then audio is restarted.
+# your backed-up original is put back if there was one, then audio is restarted.
 #
-# Exit codes: 0 done, 4 consent not given, 5 target changed since install (kept), 6 failed
+# The state directory holds the manifest and that backup, so it is dropped only
+# once nothing in it is needed any more: either there was no backup, or the
+# backup has been put back at the target. Every path that refuses to remove the
+# target keeps the whole state directory and prints where the backup is.
+#
+# Exit codes: 0 done, 4 consent not given, 5 target kept (state kept too), 6 failed
 set -uo pipefail
 
 here=$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -22,26 +27,43 @@ if (( ! consent )); then
 fi
 
 sha() { /usr/bin/sha256sum "$1" 2>/dev/null | /usr/bin/cut -d' ' -f1; }
-recorded=$([[ -f $MANIFEST ]] && /usr/bin/awk -F'\t' -v p="$DEST" '$1=="file" && $2==p {print $3; exit}' "$MANIFEST")
+# Last record for the path wins, same rule as install.sh, so a manifest left by
+# an older version with more than one line for this path still matches.
+recorded=$([[ -f $MANIFEST ]] && /usr/bin/awk -F'\t' -v p="$DEST" '$1=="file" && $2==p {s=$3} END {if (s) print s}' "$MANIFEST")
+# Newest backup is the file that was at the target when we last replaced it.
+backup=$(/usr/bin/ls -1t "$BACKUP"/10-all-outputs.conf.* 2>/dev/null | /usr/bin/head -1)
+
+# Keep the target: leave the manifest and the backup alone as well, they are the
+# only way back to your original file.
+keep() {
+  echo "all-outputs uninstall: $*" >&2
+  [[ -n $backup ]] && echo "Your original $DEST is still backed up at $backup" >&2
+  exit 5
+}
 
 # Leave broadcast mode first so the default does not point at a sink about to vanish.
 "$here/../bin/all-outputs" off >/dev/null 2>&1 || true
 
 if [[ -L $DEST ]]; then
-  echo "all-outputs uninstall: $DEST is a symlink; not touching it" >&2; exit 5
-elif [[ ! -e $DEST ]]; then
-  echo "$DEST already absent"
-elif [[ -z $recorded ]]; then
-  echo "all-outputs uninstall: $DEST was not installed by this plugin; leaving it" >&2; exit 5
-elif [[ $(sha "$DEST") != "$recorded" ]]; then
-  echo "all-outputs uninstall: $DEST was modified after install; leaving it" >&2; exit 5
-else
+  keep "$DEST is a symlink; not touching it"
+elif [[ -e $DEST && -z $recorded ]]; then
+  keep "$DEST was not installed by this plugin; leaving it"
+elif [[ -e $DEST && $(sha "$DEST") != "$recorded" ]]; then
+  keep "$DEST was modified after install; leaving it"
+fi
+
+if [[ -e $DEST ]]; then
   /usr/bin/rm -f "$DEST" || exit 6
-  latest=$(/usr/bin/ls -1t "$BACKUP"/10-all-outputs.conf.* 2>/dev/null | /usr/bin/head -1)
-  if [[ -n $latest ]]; then
-    /usr/bin/cp -p "$latest" "$DEST" && echo "Restored your previous $DEST"
-  fi
   echo "Removed $DEST"
+else
+  echo "$DEST already absent"
+fi
+
+# Put your original back before the state that holds it goes away. If the copy
+# fails the backup stays where it is, so it is never the last copy lost.
+if [[ -n $backup ]]; then
+  /usr/bin/cp -p "$backup" "$DEST" || keep "could not restore $backup to $DEST"
+  echo "Restored your previous $DEST"
 fi
 
 /usr/bin/rm -rf "$STATE"
